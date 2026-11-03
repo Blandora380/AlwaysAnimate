@@ -4,8 +4,7 @@ import { ScrollView, Text } from 'react-native'
 
 const KEYS = ['animate', 'animateAvatar', 'animateEmoji', 'canAnimate', 'shouldAnimate']
 const TARGET = /avatar|banner|emoji|nameplate/i
-const WATCH = /animat|gradient|enhanced|effect|loop|displayNameStyle/i
-const SKIP = /screen|reanimated|animated|pressable/i
+const NAMEISH = /displayname|username|rolename|member|role|effect/i
 
 const seen = new Map<string, Set<string>>()
 
@@ -19,25 +18,16 @@ function nameOf(type: any): string {
     )
 }
 
-function fmt(v: any): string {
-    if (v === null || typeof v !== 'object') {
-        return typeof v === 'function' ? 'fn' : String(v)
-    }
-    try {
-        return JSON.stringify(v).slice(0, 120)
-    } catch {
-        return 'obj'
-    }
-}
-
 function record(name: string, props: any) {
-    if (!name || SKIP.test(name)) return
+    let entries = seen.get(name)
+    if (!entries) seen.set(name, (entries = new Set()))
     for (const k in props) {
-        if (!WATCH.test(k)) continue
-        let keys = seen.get(name)
-        if (!keys) seen.set(name, (keys = new Set()))
-        if (keys.size >= 8) continue
-        keys.add(`${k}=${fmt(props[k])}`)
+        if (k === 'children' || k === 'style') continue
+        if (entries.size >= 24) return
+        const v = props[k]
+        entries.add(
+            typeof v === 'boolean' || typeof v === 'number' ? `${k}=${v}` : k,
+        )
     }
 }
 
@@ -46,7 +36,8 @@ function force<T>(args: T): T {
     if (typeof type === 'string' || !props) return args
 
     const name = nameOf(type)
-    record(name, props)
+    if (name === 'Text' && props.gradientColors) record('Text(gradient)', props)
+    else if (NAMEISH.test(name)) record(name, props)
 
     let next: Record<string, unknown> | undefined
     for (const k of KEYS) {
