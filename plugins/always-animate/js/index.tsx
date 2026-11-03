@@ -1,6 +1,7 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
 import { createElement, useEffect, useState } from 'react'
+import { ScrollView, Text } from 'react-native'
 
 const KEYS = ['animate', 'animateAvatar', 'animateEmoji', 'canAnimate', 'shouldAnimate']
 const TARGET = /avatar|banner|emoji|nameplate|profileeffect|guildicon/i
@@ -75,9 +76,34 @@ function nameOf(type: any): string {
     return type?.displayName || type?.name || type?.type?.name || type?.render?.name || ''
 }
 
+const WATCH = /color|gradient|displayname|effect|author|username|member|role|nick/i
+const SKIP = /screen|reanimated|animated|pressable|bottomsheet|scroll|view$/i
+const seen = new Map<string, Set<string>>()
+
+function fmt(v: any): string {
+    if (typeof v === 'function') return 'fn'
+    if (v === null || typeof v !== 'object') return String(v)
+    try {
+        return JSON.stringify(v).slice(0, 100)
+    } catch {
+        return 'obj'
+    }
+}
+
+function record(name: string, props: any) {
+    if (!name || SKIP.test(name)) return
+    let e = seen.get(name)
+    for (const k in props) {
+        if (k === 'children' || k === 'style' || !WATCH.test(k)) continue
+        if (!e) seen.set(name, (e = new Set()))
+        if (e.size < 8) e.add(`${k}=${fmt(props[k])}`)
+    }
+}
+
 function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (!props) return args
+    if (typeof type !== 'string') record(nameOf(type), props)
 
     if (isGradient(props)) return [wrapperFor(type), props, key] as unknown as T
     if (typeof type === 'string') return args
@@ -96,6 +122,16 @@ export default plugin({
         cleanup(
             before(ReactJSXRuntime, 'jsx', force),
             before(ReactJSXRuntime, 'jsxs', force),
+        )
+    },
+    SettingsComponent() {
+        const lines = [...seen].map(([n, k]) => `${n}: ${[...k].join(' | ')}`)
+        return (
+            <ScrollView>
+                <Text selectable style={{ color: '#fff', padding: 16 }}>
+                    {lines.join('\n\n') || 'Nothing yet. Open chat, then reopen.'}
+                </Text>
+            </ScrollView>
         )
     },
 })
