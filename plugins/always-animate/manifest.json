@@ -1,0 +1,13 @@
+{
+    "format": 1,
+    "id": "dev.arlan.always-animate",
+    "name": "Always Animate",
+    "description": "Forces animated avatars, emoji, and banners to play.",
+    "author": "Arlan",
+    "version": "0.1.0",
+    "dependencies": {
+        "valenced.api": { "version": ">=1 <2" },
+        "discord": { "version": "*" }
+    },
+    "dist": { "script": "index.js" }
+}
