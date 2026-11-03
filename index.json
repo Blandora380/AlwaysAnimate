@@ -136,7 +136,7 @@
       "description": "Forces animated avatars, emoji, and banners to play.",
       "author": "Arlan",
       "channels": {
-        "latest": "0.1.6"
+        "latest": "0.1.7"
       },
       "versions": {
         "0.1.0": {
@@ -221,6 +221,19 @@
           "url": "https://blandora380.github.io/AlwaysAnimate/pool/dev.arlan.always-animate@0.1.6.zip",
           "sha256": "d6c5aeccd3dfcebf6998454a0dd6f8078e44528d492052fae1c118c29fc9dfc9",
           "size": 1274,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "0.1.7": {
+          "url": "https://blandora380.github.io/AlwaysAnimate/pool/dev.arlan.always-animate@0.1.7.zip",
+          "sha256": "3ad56051be7ed4b391e064ef2c1d4f75991b7de7c7e90e9bead339a8aaa1a6a3",
+          "size": 1687,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
