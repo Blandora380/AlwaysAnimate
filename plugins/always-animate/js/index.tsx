@@ -1,8 +1,8 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
-import { ScrollView, Text } from 'react-native'
 
-const seen = new Map<string, Set<string>>()
+const KEYS = ['animate', 'animateAvatar', 'animateEmoji', 'canAnimate', 'shouldAnimate']
+const TARGET = /avatar|banner|emoji|nameplate/i
 
 function nameOf(type: any): string {
     return (
@@ -10,38 +10,28 @@ function nameOf(type: any): string {
         type?.name ||
         type?.type?.name ||
         type?.render?.name ||
-        String(type?.$$typeof ?? typeof type)
+        ''
     )
 }
 
-function scan<T>(args: T): T {
-    const [type, props] = args as any[]
+function force<T>(args: T): T {
+    const [type, props, key] = args as any[]
     if (typeof type === 'string' || !props) return args
-    for (const key in props) {
-        if (!/animat/i.test(key)) continue
-        const name = nameOf(type)
-        let keys = seen.get(name)
-        if (!keys) seen.set(name, (keys = new Set()))
-        keys.add(`${key}=${String(props[key])}`)
+
+    let next: Record<string, unknown> | undefined
+    for (const k of KEYS) {
+        if (props[k] === false) (next ??= { ...props })[k] = true
     }
-    return args
+
+    if (!next || !TARGET.test(nameOf(type))) return args
+    return [type, next, key] as unknown as T
 }
 
 export default plugin({
     start({ cleanup }) {
         cleanup(
-            before(ReactJSXRuntime, 'jsx', scan),
-            before(ReactJSXRuntime, 'jsxs', scan),
-        )
-    },
-    SettingsComponent() {
-        const lines = [...seen].map(([n, k]) => `${n}: ${[...k].join(', ')}`)
-        return (
-            <ScrollView>
-                <Text selectable style={{ color: '#fff', padding: 16 }}>
-                    {lines.join('\n') || 'Nothing yet. Browse Discord, then reopen.'}
-                </Text>
-            </ScrollView>
+            before(ReactJSXRuntime, 'jsx', force),
+            before(ReactJSXRuntime, 'jsxs', force),
         )
     },
 })
