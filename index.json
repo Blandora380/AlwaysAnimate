@@ -302,13 +302,26 @@
       "description": "Blurred backdrop and message preview on long press.",
       "author": "Arlan",
       "channels": {
-        "latest": "0.1.0"
+        "latest": "0.1.1"
       },
       "versions": {
         "0.1.0": {
           "url": "https://blandora380.github.io/AlwaysAnimate/pool/dev.arlan.message-blur@0.1.0.zip",
           "sha256": "3287018a815791431dc7b1a81b818188fa37f5589a0c3e06f62d9d82e064d6f2",
           "size": 1011,
+          "dependencies": {
+            "valenced.api": {
+              "version": ">=1 <2"
+            },
+            "discord": {
+              "version": "*"
+            }
+          }
+        },
+        "0.1.1": {
+          "url": "https://blandora380.github.io/AlwaysAnimate/pool/dev.arlan.message-blur@0.1.1.zip",
+          "sha256": "0cb10614750e617aa89818bf57570d32a2552bb3c31b665aeb8356bbc7d11f91",
+          "size": 1153,
           "dependencies": {
             "valenced.api": {
               "version": ">=1 <2"
