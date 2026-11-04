@@ -4,7 +4,7 @@
     "name": "Always Animate",
     "description": "Forces animated avatars, emoji, and banners to play.",
     "author": "Arlan",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "dependencies": {
         "valenced.api": { "version": ">=1 <2" },
         "discord": { "version": "*" }

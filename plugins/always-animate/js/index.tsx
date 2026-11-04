@@ -100,10 +100,26 @@ function record(name: string, props: any) {
     }
 }
 
+function dumpAuthors(props: any) {
+    seen.set('MessagesRenderer_keys', new Set(Object.keys(props)))
+    const members = props.messageAuthorMembers
+    if (!members) return
+    const out = new Set<string>()
+    for (const id in members) {
+        const m = members[id]
+        for (const k in m) {
+            if (/color|style|gradient|role|effect/i.test(k)) out.add(`${k}=${fmt(m[k])}`)
+        }
+        if (out.size > 40) break
+    }
+    seen.set('AUTHOR_MEMBER', out)
+}
+
 function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (!props) return args
     if (typeof type !== 'string') record(nameOf(type), props)
+    if (typeof type !== 'string' && nameOf(type) === 'MessagesRenderer') dumpAuthors(props)
 
     if (isGradient(props)) return [wrapperFor(type), props, key] as unknown as T
     if (typeof type === 'string') return args
