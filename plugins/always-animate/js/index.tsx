@@ -1,32 +1,42 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
 import { createElement, useEffect, useState } from 'react'
-import { ScrollView, Text } from 'react-native'
 
 const KEYS = ['animate', 'animateAvatar', 'animateEmoji', 'canAnimate', 'shouldAnimate']
 const TARGET = /avatar|banner|emoji|nameplate|profileeffect|guildicon/i
+const HEX = /^#[0-9a-f]{6}$/i
 
-const listeners = new Set<() => void>()
-const wrappers = new Map<any, any>()
-let offset = 0
-let timer: ReturnType<typeof setInterval> | undefined
-
-function subscribe(fn: () => void) {
-    listeners.add(fn)
-    if (!timer) {
-        timer = setInterval(() => {
-            offset = (offset + 0.012) % 1
-            listeners.forEach(l => l())
-        }, 60)
-    }
-    return () => {
-        listeners.delete(fn)
-        if (!listeners.size && timer) {
-            clearInterval(timer)
-            timer = undefined
-        }
+function makeClock(ms: number, step: number) {
+    const listeners = new Set<() => void>()
+    let offset = 0
+    let timer: ReturnType<typeof setInterval> | undefined
+    return {
+        get offset() {
+            return offset
+        },
+        subscribe(fn: () => void) {
+            listeners.add(fn)
+            if (!timer) {
+                timer = setInterval(() => {
+                    offset = (offset + step) % 1
+                    listeners.forEach(l => l())
+                }, ms)
+            }
+            return () => {
+                listeners.delete(fn)
+                if (!listeners.size && timer) {
+                    clearInterval(timer)
+                    timer = undefined
+                }
+            }
+        },
     }
 }
+
+const fast = makeClock(60, 0.012)
+const slow = makeClock(200, 0.02)
+const wrappers = new Map<any, any>()
+const chatWrappers = new Map<any, any>()
 
 function split(c: number) {
     const u = c >>> 0
@@ -51,18 +61,75 @@ function shifted(colors: number[], t: number): number[] {
     })
 }
 
-function wrapperFor(type: any) {
+function hexRgb(s: string) {
+    return [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16))
+}
+
+function rgbHex(p: number[]) {
+    return '#' + p.map(v => v.toString(16).padStart(2, '0')).join('')
+}
+
+function rotateHex(stops: string[], t: number): string[] {
+    const n = stops.length
+    const rgb = stops.map(hexRgb)
+    return stops.map((_, k) => {
+        const pos = (k + t * n) % n
+        const i = Math.floor(pos)
+        const f = pos - i
+        const a = rgb[i % n]
+        const b = rgb[(i + 1) % n]
+        return rgbHex(a.map((v, j) => Math.round(v + (b[j] - v) * f)))
+    })
+}
+
+function recolor(m: any, t: number) {
+    const cs = m?.colorStrings
+    if (!cs) return m
+    const stops = [cs.primaryColor, cs.secondaryColor, cs.tertiaryColor].filter(
+        (c: any) => typeof c === 'string' && HEX.test(c),
+    )
+    if (stops.length < 2) return m
+    const out = rotateHex(stops, t)
+    return {
+        ...m,
+        colorString: out[0],
+        colorStrings: {
+            primaryColor: out[0],
+            secondaryColor: out[1],
+            tertiaryColor: stops.length > 2 ? out[2] : cs.tertiaryColor,
+        },
+    }
+}
+
+function gradientWrapper(type: any) {
     let w = wrappers.get(type)
     if (!w) {
         w = function AnimatedGradient(props: any) {
             const [, setTick] = useState(0)
-            useEffect(() => subscribe(() => setTick(x => x + 1)), [])
+            useEffect(() => fast.subscribe(() => setTick(x => x + 1)), [])
             return createElement(type, {
                 ...props,
-                gradientColors: shifted(props.gradientColors, offset),
+                gradientColors: shifted(props.gradientColors, fast.offset),
             })
         }
         wrappers.set(type, w)
+    }
+    return w
+}
+
+function chatWrapper(type: any) {
+    let w = chatWrappers.get(type)
+    if (!w) {
+        w = function AnimatedChat(props: any) {
+            const [, setTick] = useState(0)
+            useEffect(() => slow.subscribe(() => setTick(x => x + 1)), [])
+            const members = props.messageAuthorMembers
+            if (!members) return createElement(type, props)
+            const next: Record<string, unknown> = {}
+            for (const id in members) next[id] = recolor(members[id], slow.offset)
+            return createElement(type, { ...props, messageAuthorMembers: next })
+        }
+        chatWrappers.set(type, w)
     }
     return w
 }
@@ -76,60 +143,24 @@ function nameOf(type: any): string {
     return type?.displayName || type?.name || type?.type?.name || type?.render?.name || ''
 }
 
-const WATCH = /color|gradient|displayname|effect|author|username|member|role|nick/i
-const SKIP = /screen|reanimated|animated|pressable|bottomsheet|scroll|view$/i
-const seen = new Map<string, Set<string>>()
-
-function fmt(v: any): string {
-    if (typeof v === 'function') return 'fn'
-    if (v === null || typeof v !== 'object') return String(v)
-    try {
-        return JSON.stringify(v).slice(0, 100)
-    } catch {
-        return 'obj'
-    }
-}
-
-function record(name: string, props: any) {
-    if (!name || SKIP.test(name)) return
-    let e = seen.get(name)
-    for (const k in props) {
-        if (k === 'children' || k === 'style' || !WATCH.test(k)) continue
-        if (!e) seen.set(name, (e = new Set()))
-        if (e.size < 8) e.add(`${k}=${fmt(props[k])}`)
-    }
-}
-
-function dumpAuthors(props: any) {
-    seen.set('MessagesRenderer_keys', new Set(Object.keys(props)))
-    const members = props.messageAuthorMembers
-    if (!members) return
-    const out = new Set<string>()
-    for (const id in members) {
-        const m = members[id]
-        for (const k in m) {
-            if (/color|style|gradient|role|effect/i.test(k)) out.add(`${k}=${fmt(m[k])}`)
-        }
-        if (out.size > 40) break
-    }
-    seen.set('AUTHOR_MEMBER', out)
-}
-
 function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (!props) return args
-    if (typeof type !== 'string') record(nameOf(type), props)
-    if (typeof type !== 'string' && nameOf(type) === 'MessagesRenderer') dumpAuthors(props)
 
-    if (isGradient(props)) return [wrapperFor(type), props, key] as unknown as T
+    if (isGradient(props)) return [gradientWrapper(type), props, key] as unknown as T
     if (typeof type === 'string') return args
+
+    const name = nameOf(type)
+    if (name === 'MessagesRenderer' && props.messageAuthorMembers) {
+        return [chatWrapper(type), props, key] as unknown as T
+    }
 
     let next: Record<string, unknown> | undefined
     for (const k of KEYS) {
         if (props[k] === false) (next ??= { ...props })[k] = true
     }
 
-    if (!next || !TARGET.test(nameOf(type))) return args
+    if (!next || !TARGET.test(name)) return args
     return [type, next, key] as unknown as T
 }
 
@@ -138,16 +169,6 @@ export default plugin({
         cleanup(
             before(ReactJSXRuntime, 'jsx', force),
             before(ReactJSXRuntime, 'jsxs', force),
-        )
-    },
-    SettingsComponent() {
-        const lines = [...seen].map(([n, k]) => `${n}: ${[...k].join(' | ')}`)
-        return (
-            <ScrollView>
-                <Text selectable style={{ color: '#fff', padding: 16 }}>
-                    {lines.join('\n\n') || 'Nothing yet. Open chat, then reopen.'}
-                </Text>
-            </ScrollView>
         )
     },
 })
