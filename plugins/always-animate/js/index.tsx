@@ -57,6 +57,7 @@ function note(name: string, k: string, v: any) {
     found.set(id, `${Array.isArray(v) ? 'array' : typeof v}<${typeof first}> ${fmt(v)}`)
 }
 
+const names = new Set<string>()
 const wrappers = new Map<any, any>()
 const chatWrappers = new Map<any, any>()
 
@@ -185,6 +186,7 @@ function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (!props) return args
     if (typeof type !== 'string') {
+        if (names.size < 600) names.add(nameOf(type))
         for (const k in props) if (GRAD.test(k)) note(nameOf(type), k, props[k])
     }
 
@@ -216,6 +218,11 @@ export default plugin({
         const lines = [
             `chatRenders=${stats.renders} rotated=${stats.rotated} sample=${stats.sample}`,
             ...[...found].map(([k, v]) => `${k}: ${v}`),
+            `total=${names.size}`,
+            [...names]
+                .filter(n => /message|chat|author|header|row|cell|reply|embed|name|role|user|content|markdown/i.test(n))
+                .sort()
+                .join(', '),
         ]
         return (
             <ScrollView>
