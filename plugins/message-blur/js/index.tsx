@@ -1,43 +1,41 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
-import { createElement, useEffect, useMemo, useState } from 'react'
+import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, ScrollView, Text, View } from 'react-native'
 
 const RADII = [8, 16, 24]
 const DURATIONS = [150, 250, 400]
-const CANDIDATES = ['ChatView', 'ChannelHeader', 'GuildChannelHeader', 'Header', 'ChatViewWrapperBase']
-const FLEX = new Set(['ChatView', 'ChatViewWrapperBase'])
 
-const cfg = {
-    radius: 16,
-    ms: 250,
-    targets: new Set(['ChatView', 'ChannelHeader', 'GuildChannelHeader']),
-}
+const cfg = { radius: 8, ms: 150, header: true, pauseGifs: true }
 
 let active = 0
 let progress = 0
-let goal = 0
-let timer: ReturnType<typeof setInterval> | undefined
+let from = 0
+let target = 0
+let startAt = 0
+let raf: number | undefined
 
-const listeners = new Set<() => void>()
+const frameListeners = new Set<() => void>()
+const stateListeners = new Set<() => void>()
 const scopeWrappers = new Map<any, any>()
 const blurWrappers = new Map<any, any>()
-const counts = new Map<string, number>()
-const status = { sheets: 0 }
+const pauseWrappers = new Map<any, any>()
 
-function tick() {
-    const step = 16 / cfg.ms
-    progress = goal > progress ? Math.min(goal, progress + step) : Math.max(goal, progress - step)
-    listeners.forEach(l => l())
-    if (progress === goal && timer) {
-        clearInterval(timer)
-        timer = undefined
-    }
+function frame(now: number) {
+    raf = undefined
+    if (!startAt) startAt = now
+    const t = Math.min(1, (now - startAt) / cfg.ms)
+    progress = from + (target - from) * (t * t * (3 - 2 * t))
+    frameListeners.forEach(l => l())
+    if (t < 1) raf = requestAnimationFrame(frame)
 }
 
 function setGoal(g: number) {
-    goal = g
-    if (!timer && progress !== goal) timer = setInterval(tick, 16)
+    if (g === target) return
+    from = progress
+    target = g
+    startAt = 0
+    if (raf === undefined) raf = requestAnimationFrame(frame)
 }
 
 function nameOf(type: any): string {
@@ -52,15 +50,23 @@ function scopeFor(type: any) {
     let w = scopeWrappers.get(type)
     if (!w) {
         w = function MessageSheetScope(props: any) {
-            useEffect(() => {
+            const started = useRef(false)
+            if (!started.current) {
+                started.current = true
                 active++
-                status.sheets++
+                if (active === 1) stateListeners.forEach(l => l())
                 setGoal(1)
-                return () => {
+            }
+            useEffect(
+                () => () => {
                     active = Math.max(0, active - 1)
-                    if (!active) setGoal(0)
-                }
-            }, [])
+                    if (!active) {
+                        setGoal(0)
+                        stateListeners.forEach(l => l())
+                    }
+                },
+                [],
+            )
             return createElement(type, props)
         }
         scopeWrappers.set(type, w)
@@ -68,22 +74,20 @@ function scopeFor(type: any) {
     return w
 }
 
-function blurFor(type: any, name: string) {
+function blurFor(type: any, flex: boolean) {
     let w = blurWrappers.get(type)
     if (!w) {
-        const flex = FLEX.has(name)
         w = function Blurred(props: any) {
             const [, setTick] = useState(0)
             useEffect(() => {
                 const fn = () => setTick(x => x + 1)
-                listeners.add(fn)
+                frameListeners.add(fn)
                 return () => {
-                    listeners.delete(fn)
+                    frameListeners.delete(fn)
                 }
             }, [])
-            counts.set(name, (counts.get(name) ?? 0) + 1)
             const child = useMemo(() => createElement(type, props), [props])
-            const amount = cfg.radius * (1 - Math.pow(1 - progress, 3))
+            const amount = cfg.radius * progress
             let style: any = flex ? { flex: 1 } : undefined
             if (amount > 0.1) style = { ...style, filter: [{ blur: amount }] }
             return createElement(View, { style }, child)
@@ -93,25 +97,42 @@ function blurFor(type: any, name: string) {
     return w
 }
 
+function pauseFor(type: any) {
+    let w = pauseWrappers.get(type)
+    if (!w) {
+        w = function PauseGifs(props: any) {
+            const [open, setOpen] = useState(active > 0)
+            useEffect(() => {
+                const fn = () => setOpen(active > 0)
+                stateListeners.add(fn)
+                return () => {
+                    stateListeners.delete(fn)
+                }
+            }, [])
+            return createElement(type, open && cfg.pauseGifs ? { ...props, gifAutoPlay: false } : props)
+        }
+        pauseWrappers.set(type, w)
+    }
+    return w
+}
+
 function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (typeof type === 'string' || !props) return args
     if (isMessageSheet(props)) return [scopeFor(type), props, key] as unknown as T
     const name = nameOf(type)
-    if (cfg.targets.has(name)) return [blurFor(type, name), props, key] as unknown as T
+    if (name === 'ChatView') return [blurFor(type, true), props, key] as unknown as T
+    if (name === 'Header' && cfg.header) return [blurFor(type, false), props, key] as unknown as T
+    if (name === 'MessagesRenderer' && 'gifAutoPlay' in props) {
+        return [pauseFor(type), props, key] as unknown as T
+    }
     return args
 }
 
 function Choice({ on, label, onPress }: { on: boolean; label: string; onPress: () => void }) {
     return (
         <Pressable onPress={onPress}>
-            <Text
-                style={{
-                    color: on ? '#7ee787' : '#fff',
-                    paddingHorizontal: 16,
-                    paddingVertical: 10,
-                }}
-            >
+            <Text style={{ color: on ? '#7ee787' : '#fff', paddingHorizontal: 16, paddingVertical: 10 }}>
                 {on ? '● ' : '○ '}
                 {label}
             </Text>
@@ -140,22 +161,9 @@ export default plugin({
                 {DURATIONS.map(d => (
                     <Choice key={d} on={cfg.ms === d} label={String(d)} onPress={() => { cfg.ms = d; refresh() }} />
                 ))}
-                <Text style={head}>Komponen yang di-blur</Text>
-                {CANDIDATES.map(c => (
-                    <Choice
-                        key={c}
-                        on={cfg.targets.has(c)}
-                        label={`${c} (render: ${counts.get(c) ?? 0})`}
-                        onPress={() => {
-                            if (cfg.targets.has(c)) cfg.targets.delete(c)
-                            else cfg.targets.add(c)
-                            refresh()
-                        }}
-                    />
-                ))}
-                <Text style={{ color: '#fff', padding: 16 }}>
-                    {`sheetTerdeteksi=${status.sheets}`}
-                </Text>
+                <Text style={head}>Lainnya</Text>
+                <Choice on={cfg.header} label="Blur top bar" onPress={() => { cfg.header = !cfg.header; refresh() }} />
+                <Choice on={cfg.pauseGifs} label="Hentikan GIF saat sheet terbuka" onPress={() => { cfg.pauseGifs = !cfg.pauseGifs; refresh() }} />
             </ScrollView>
         )
     },
