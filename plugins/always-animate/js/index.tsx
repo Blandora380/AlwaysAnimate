@@ -1,6 +1,7 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
 import { createElement, useEffect, useState } from 'react'
+import { ScrollView, Text } from 'react-native'
 
 const KEYS = ['animate', 'animateAvatar', 'animateEmoji', 'canAnimate', 'shouldAnimate']
 const TARGET = /avatar|banner|emoji|nameplate|profileeffect|guildicon/i
@@ -35,6 +36,27 @@ function makeClock(ms: number, step: number) {
 
 const fast = makeClock(60, 0.012)
 const slow = makeClock(200, 0.02)
+const GRAD = /gradient|^colors$/i
+const found = new Map<string, string>()
+const stats = { renders: 0, rotated: 0, sample: '' }
+
+function fmt(v: any): string {
+    if (typeof v === 'function') return 'fn'
+    if (v === null || typeof v !== 'object') return String(v)
+    try {
+        return JSON.stringify(v).slice(0, 90)
+    } catch {
+        return 'obj'
+    }
+}
+
+function note(name: string, k: string, v: any) {
+    const id = `${name}.${k}`
+    if (found.has(id) || found.size > 40) return
+    const first = Array.isArray(v) ? v[0] : v
+    found.set(id, `${Array.isArray(v) ? 'array' : typeof v}<${typeof first}> ${fmt(v)}`)
+}
+
 const wrappers = new Map<any, any>()
 const chatWrappers = new Map<any, any>()
 
@@ -109,7 +131,10 @@ function gradientWrapper(type: any) {
             useEffect(() => fast.subscribe(() => setTick(x => x + 1)), [])
             return createElement(type, {
                 ...props,
-                gradientColors: shifted(props.gradientColors, fast.offset),
+                gradientColors:
+                    typeof props.gradientColors[0] === 'number'
+                        ? shifted(props.gradientColors, fast.offset)
+                        : rotateHex(props.gradientColors, fast.offset),
             })
         }
         wrappers.set(type, w)
@@ -124,9 +149,17 @@ function chatWrapper(type: any) {
             const [, setTick] = useState(0)
             useEffect(() => slow.subscribe(() => setTick(x => x + 1)), [])
             const members = props.messageAuthorMembers
+            stats.renders++
             if (!members) return createElement(type, props)
             const next: Record<string, unknown> = {}
-            for (const id in members) next[id] = recolor(members[id], slow.offset)
+            for (const id in members) {
+                const r = recolor(members[id], slow.offset)
+                next[id] = r
+                if (r !== members[id]) {
+                    stats.rotated++
+                    stats.sample = r.colorString
+                }
+            }
             return createElement(type, { ...props, messageAuthorMembers: next })
         }
         chatWrappers.set(type, w)
@@ -136,7 +169,12 @@ function chatWrapper(type: any) {
 
 function isGradient(props: any) {
     const c = props?.gradientColors
-    return Array.isArray(c) && c.length > 1 && c.every((x: any) => typeof x === 'number')
+    return (
+        Array.isArray(c) &&
+        c.length > 1 &&
+        (c.every((x: any) => typeof x === 'number') ||
+            c.every((x: any) => typeof x === 'string' && HEX.test(x)))
+    )
 }
 
 function nameOf(type: any): string {
@@ -146,6 +184,9 @@ function nameOf(type: any): string {
 function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (!props) return args
+    if (typeof type !== 'string') {
+        for (const k in props) if (GRAD.test(k)) note(nameOf(type), k, props[k])
+    }
 
     if (isGradient(props)) return [gradientWrapper(type), props, key] as unknown as T
     if (typeof type === 'string') return args
@@ -169,6 +210,19 @@ export default plugin({
         cleanup(
             before(ReactJSXRuntime, 'jsx', force),
             before(ReactJSXRuntime, 'jsxs', force),
+        )
+    },
+    SettingsComponent() {
+        const lines = [
+            `chatRenders=${stats.renders} rotated=${stats.rotated} sample=${stats.sample}`,
+            ...[...found].map(([k, v]) => `${k}: ${v}`),
+        ]
+        return (
+            <ScrollView>
+                <Text selectable style={{ color: '#fff', padding: 16 }}>
+                    {lines.join('\n\n')}
+                </Text>
+            </ScrollView>
         )
     },
 })
