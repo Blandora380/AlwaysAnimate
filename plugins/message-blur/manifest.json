@@ -1,0 +1,13 @@
+{
+    "format": 1,
+    "id": "dev.arlan.message-blur",
+    "name": "Message Blur",
+    "description": "Blurred backdrop and message preview on long press.",
+    "author": "Arlan",
+    "version": "0.1.0",
+    "dependencies": {
+        "valenced.api": { "version": ">=1 <2" },
+        "discord": { "version": "*" }
+    },
+    "dist": { "script": "index.js" }
+}
