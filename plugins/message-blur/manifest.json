@@ -4,7 +4,7 @@
     "name": "Message Blur",
     "description": "Blurred backdrop and message preview on long press.",
     "author": "Arlan",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "dependencies": {
         "valenced.api": { "version": ">=1 <2" },
         "discord": { "version": "*" }
