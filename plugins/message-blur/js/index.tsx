@@ -1,8 +1,24 @@
 import { before } from '@valenced/patcher'
 import { ReactJSXRuntime } from '@valenced/react'
-import { createElement, useEffect, useRef } from 'react'
-import { ScrollView, Text } from 'react-native'
+import { createElement, useEffect, useRef, useState } from 'react'
+import { Pressable, ScrollView, Text } from 'react-native'
 
+const OPTIONS = [
+    'light',
+    'dark',
+    'regular',
+    'prominent',
+    'xlight',
+    'extraLight',
+    'material',
+    'thinMaterial',
+    'thickMaterial',
+    'ultraThinMaterial',
+    'chromeMaterial',
+    'systemMaterial',
+]
+
+let chosen = 'light'
 let active = 0
 const wrappers = new Map<any, any>()
 const info = new Map<string, string>()
@@ -41,17 +57,13 @@ function force<T>(args: T): T {
     const [type, props, key] = args as any[]
     if (typeof type === 'string' || !props) return args
 
-    if (isMessageSheet(props)) {
-        if (!info.has('message.keys')) {
-            info.set('message.keys', Object.keys(props.message).join(' | '))
-            info.set('user.keys', Object.keys(props.user ?? {}).join(' | '))
-        }
-        return [scoped(type), props, key] as unknown as T
-    }
+    if (isMessageSheet(props)) return [scoped(type), props, key] as unknown as T
 
     if (active > 0 && 'blur' in props && nameOf(type) === 'Backdrop') {
-        info.set('Backdrop.blur(original)', `${typeof props.blur} ${String(props.blur)}`)
-        return [type, { ...props, blur: true }, key] as unknown as T
+        info.set('original', `${typeof props.blur} ${String(props.blur)}`)
+        info.set('style', JSON.stringify(props.style ?? null).slice(0, 160))
+        info.set('applied', chosen)
+        return [type, { ...props, blur: chosen }, key] as unknown as T
     }
 
     return args
@@ -65,11 +77,34 @@ export default plugin({
         )
     },
     SettingsComponent() {
-        const lines = [...info].map(([k, v]) => `${k}: ${v}`)
+        const [, setTick] = useState(0)
         return (
             <ScrollView>
+                <Text style={{ color: '#fff', padding: 16 }}>
+                    Pilih nilai, lalu hold satu pesan.
+                </Text>
+                {OPTIONS.map(o => (
+                    <Pressable
+                        key={o}
+                        onPress={() => {
+                            chosen = o
+                            setTick(x => x + 1)
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: chosen === o ? '#7ee787' : '#fff',
+                                paddingHorizontal: 16,
+                                paddingVertical: 10,
+                            }}
+                        >
+                            {chosen === o ? '● ' : '○ '}
+                            {o}
+                        </Text>
+                    </Pressable>
+                ))}
                 <Text selectable style={{ color: '#fff', padding: 16 }}>
-                    {lines.join('\n\n') || 'Belum ada. Hold satu pesan, lalu buka lagi.'}
+                    {[...info].map(([k, v]) => `${k}: ${v}`).join('\n')}
                 </Text>
             </ScrollView>
         )
